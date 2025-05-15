@@ -1,0 +1,27 @@
+GAME_MODE = "ALE/Breakout-v5"
+ACTION_SPACE = [0,1,2,3]
+SEED = 0
+
+#Parameters of the environment(environment.py)
+FRAMESKIP = 4
+FRAME_STACK_SIZE = 4
+SCREEN_SIZE = 84
+
+GRAYSCALE = True
+SCALE = False
+
+CLIP_REWARD = True
+CLIP_BOUND = 1
+
+#Parameters of the agent(agent.py)
+EPSILON = 1.0
+MIN_EPSILON = 0.1
+MAX_STEP_FOR_EPSILON_REDUCTION = 1e6
+EPSILON_REDUCTION = (EPSILON - MIN_EPSILON) / MAX_STEP_FOR_EPSILON_REDUCTION
+
+GAMMA = 0.99
+LR = 2.5e-4
+MINI_BATCH_SIZE = 32
+
+MEMORY_SIZE = 3e5
+
