@@ -1,6 +1,6 @@
 from .environment import AtariBreakoutEnv
 from .agent import Agent
-from .train import ModelEvaluator
+from .test import ModelEvaluator
 from .config import MAX_STEPS, TRAINING_START_STEP, NETWORK_VALIDATION_FREQUENCY
 
 def train():

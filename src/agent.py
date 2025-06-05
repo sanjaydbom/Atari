@@ -142,7 +142,7 @@ class Agent:
             raise ValueError(f"Expected input shape {self.input_shape}, got {state.shape}")
         if not done and next_state.shape != self.input_shape:
             raise ValueError(f"Expected input shape {self.input_shape}, got {next_state.shape}")
-        if isinstance(action, int) or action not in self.action_space:
+        if not isinstance(action, int) or action not in self.action_space:
             raise ValueError(f"Action {action} not in action space")
         
         if done:
@@ -169,7 +169,7 @@ class Agent:
         actions = torch.tensor(action, dtype = torch.long).to(device=self.device)
         rewards = torch.tensor(reward, dtype = torch.float32).to(device=self.device)
         non_terminal_mask = torch.tensor([ns is not None for ns in next_state], dtype=torch.bool).to(self.device)
-        next_states = torch.stack([ns if ns is not None else torch.zeros_like(torch.tensor(self.input_shape)) for ns in next_state]).to(device=self.device)
+        next_states = torch.stack([ns if ns is not None else torch.zeros(torch.tensor(self.input_shape)) for ns in next_state]).to(device=self.device)
 
         q_values = self.model(states).gather(1, actions.unsqueeze(1))
 
@@ -211,6 +211,7 @@ class Agent:
             
     def load_model(self, filename):
         self.model.load_state_dict(torch.load(filename), weights_only = True)
+        self.model.to(self.device)
         optimizer_path = filename.replace('.pt', '_optimizer.pt')
         self.optimizer.load_state_dict(torch.load(optimizer_path))
 
