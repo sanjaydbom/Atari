@@ -69,7 +69,7 @@ class Agent:
         self.optimizer = optim.RMSprop(self.model.parameters(), lr, alpha = alpha, eps = eps)
         self.loss_fn = nn.SmoothL1Loss()
         
-        self.memory = deque(maxlen=memory_size)
+        self.memory = deque(maxlen=int(memory_size))
 
         self.gamma = gamma
         self.mini_batch_size = mini_batch_size
@@ -168,13 +168,13 @@ class Agent:
         actions = torch.tensor(action, dtype = torch.long).to(device=self.device)
         rewards = torch.tensor(reward, dtype = torch.float32).to(device=self.device)
         non_terminal_mask = torch.tensor([ns is not None for ns in next_state], dtype=torch.bool).to(self.device)
-        next_states = torch.stack([ns if ns is not None else torch.zeros(torch.tensor(self.input_shape)) for ns in next_state]).to(device=self.device)
+        next_states = torch.stack([torch.from_numpy(ns).float() if ns is not None else torch.zeros(self.input_shape) for ns in next_state]).to(device=self.device)
 
-        q_values = self.model(states).gather(1, actions.unsqueeze(1))
+        q_values = self.model(states).gather(1, actions.unsqueeze(1)).to(self.device)
 
         with torch.no_grad():
-            target = torch.zeros(self.mini_batch_size)
-            next_action = self.model(next_states[non_terminal_mask]).argmax(1)
+            target = torch.zeros(self.mini_batch_size).to(self.device)
+            next_action = self.model(next_states[non_terminal_mask]).argmax(1).to(self.device)
             target[non_terminal_mask] = self.gamma * self.target_model(next_states[non_terminal_mask]).gather(1, next_action.unsqueeze(1)).squeeze()
             target += rewards
             target = target.unsqueeze(1)
@@ -209,7 +209,7 @@ class Agent:
             self.update_target_network()
             
     def load_model(self, filename):
-        self.model.load_state_dict(torch.load(filename), weights_only = True)
+        self.model.load_state_dict(torch.load(filename, weights_only = True))
         self.model.to(self.device)
         optimizer_path = filename.replace('.pt', '_optimizer.pt')
         self.optimizer.load_state_dict(torch.load(optimizer_path))
