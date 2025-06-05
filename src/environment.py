@@ -4,7 +4,7 @@ from gymnasium.wrappers import AtariPreprocessing, FrameStackObservation, Transf
 from .config import GAME_MODE,FRAMESKIP,FRAME_STACK_SIZE,SCREEN_SIZE,GRAYSCALE,SCALE,CLIP_REWARD,CLIP_BOUND
 
 gym.register_envs(ale_py)
-class AtariBreakoutEnv():
+class AtariBreakoutEnv:
     def __init__(self, game_mode = GAME_MODE, reward_clipping = CLIP_REWARD, frame_skip = FRAMESKIP, screen_size = SCREEN_SIZE, stack_size = FRAME_STACK_SIZE, grayscale = GRAYSCALE, scale = SCALE, render_mode = None):
         """
         Initialize the environment and does the preprocessing

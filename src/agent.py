@@ -7,6 +7,7 @@ from torch import nn, optim
 import numpy as np
 
 from model import AtariDQN
+from test import ModelEvaluator
 from .config import ACTION_SPACE,EPSILON,MIN_EPSILON,EPSILON_REDUCTION,LR,ALPHA,EPS, MEMORY_SIZE,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_VALIDATION_FREQUENCY, TAU
 
 class Agent:
@@ -208,9 +209,10 @@ class Agent:
         if self.num_steps % self.validation_frequency == 0:
             self.update_target_network()
             
-
     def load_model(self, filename):
         self.model.load_state_dict(torch.load(filename), weights_only = True)
         optimizer_path = filename.replace('.pt', '_optimizer.pt')
         self.optimizer.load_state_dict(torch.load(optimizer_path))
-        
+
+    def get_steps(self):
+        return self.num_steps   
