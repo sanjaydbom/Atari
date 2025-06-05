@@ -33,7 +33,7 @@ def train():
                     writer = csv.writer(file)
 
                     if not file_exists:
-                        writer.writerow(['step', 'mean_score', 'median_score', 'std_score', 'min_score', 'max_score'])
+                        writer.writerow(['step', 'loss', 'mean_score', 'median_score', 'std_score', 'max_score', 'min_score'])
 
                     writer.writerow([steps, loss, testing_data["mean_score"], testing_data["median_score"], testing_data["std_score"], testing_data["max_score"], testing_data["min_score"]])
 
