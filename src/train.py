@@ -1,3 +1,6 @@
+import csv
+import os
+
 from .environment import AtariBreakoutEnv
 from .agent import Agent
 from .test import ModelEvaluator
@@ -7,6 +10,7 @@ def train():
     env = AtariBreakoutEnv()
     agent = Agent()
     steps = 0
+    log_file = 'experiment_logs/training_log.csv'
     while steps <= MAX_STEPS:
         state = env.reset()
 
@@ -15,7 +19,7 @@ def train():
             next_state,reward, done = env.step(action)
             agent.store_experience(state, action, reward, next_state, done)
             if steps >= TRAINING_START_STEP:
-                agent.train()
+                loss = agent.train()
             agent.increment_steps()
             steps = agent.get_steps()
 
@@ -23,6 +27,16 @@ def train():
                 evaluator = ModelEvaluator(agent)
                 testing_data = evaluator.evaluate()
                 print(f"{steps * 100 / MAX_STEPS}% done: Validation Loss {testing_data["Average score"]:.2f}")
+
+                file_exists = os.path.isfile(log_file)
+                with open(log_file, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+
+                    if not file_exists:
+                        writer.writerow(['step', 'mean_score', 'median_score', 'std_score', 'min_score', 'max_score'])
+
+                    writer.writerow([steps, loss, testing_data["mean_score"], testing_data["median_score"], testing_data["std_score"], testing_data["max_score"], testing_data["min_score"]])
+
             if done:
                 break
 

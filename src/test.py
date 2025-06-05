@@ -24,5 +24,6 @@ class ModelEvaluator():
             "Average score" : np.mean(scores),
             "Standard Deviation" : np.std(scores),
             "Max" : np.max(scores),
-            "Min" : np.min(scores)
+            "Min" : np.min(scores),
+            "Median" : np.median(scores)
         }

@@ -6,8 +6,7 @@ import torch
 from torch import nn, optim
 import numpy as np
 
-from model import AtariDQN
-from test import ModelEvaluator
+from .model import AtariDQN
 from .config import ACTION_SPACE,EPSILON,MIN_EPSILON,EPSILON_REDUCTION,LR,ALPHA,EPS, MEMORY_SIZE,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_VALIDATION_FREQUENCY, TAU
 
 class Agent:
