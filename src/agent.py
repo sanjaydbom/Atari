@@ -7,7 +7,8 @@ from torch import nn, optim
 import numpy as np
 
 from .model import AtariDQN
-from .config import ACTION_SPACE,EPSILON,MIN_EPSILON,EPSILON_REDUCTION,LR,ALPHA,EPS, MEMORY_SIZE,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_VALIDATION_FREQUENCY, TAU
+from .priority_replay import PriorityReplay
+from .config import ACTION_SPACE,EPSILON,MIN_EPSILON,EPSILON_REDUCTION,LR,ALPHA,EPS,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_VALIDATION_FREQUENCY, TAU
 
 class Agent:
     """Agent to learn how to play Atari games
@@ -53,7 +54,7 @@ class Agent:
         To learn more about RMSprop, visit http://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf 
         To learn more about Network-Target Network Architecture, visit https://www.nature.com/articles/nature14236
     """
-    def __init__(self,action_space: list[int] = ACTION_SPACE, epsilon: float = EPSILON, min_epsilon: float = MIN_EPSILON, epsilon_reduction: float = EPSILON_REDUCTION, lr: float = LR, alpha: float = ALPHA, eps: float = EPS, gamma: float = GAMMA, mini_batch_size: int = MINI_BATCH_SIZE, memory_size: int = MEMORY_SIZE, clip_gradient: bool = CLIP_GRADIENT, max_gradient: float = MAX_GRADIENT, network_validation_frequency = NETWORK_VALIDATION_FREQUENCY, tau = TAU):
+    def __init__(self,action_space: list[int] = ACTION_SPACE, epsilon: float = EPSILON, min_epsilon: float = MIN_EPSILON, epsilon_reduction: float = EPSILON_REDUCTION, lr: float = LR, alpha: float = ALPHA, eps: float = EPS, gamma: float = GAMMA, mini_batch_size: int = MINI_BATCH_SIZE, clip_gradient: bool = CLIP_GRADIENT, max_gradient: float = MAX_GRADIENT, network_validation_frequency = NETWORK_VALIDATION_FREQUENCY, tau = TAU):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("mps" if torch.mps.is_available() else self.device)
         self.model = AtariDQN().to(device=self.device)
@@ -69,7 +70,7 @@ class Agent:
         self.optimizer = optim.RMSprop(self.model.parameters(), lr, alpha = alpha, eps = eps)
         self.loss_fn = nn.SmoothL1Loss()
         
-        self.memory = deque(maxlen=int(memory_size))
+        self.memory = PriorityReplay()
 
         self.gamma = gamma
         self.mini_batch_size = mini_batch_size
@@ -120,7 +121,7 @@ class Agent:
         """
         self.epsilon = max(self.epsilon - self.epsilon_reduction, self.min_epsilon)
 
-    def store_experience(self,state:np.ndarray, action:int, reward:float, next_state:np.ndarray, done:bool) -> None:
+    def store_experience(self,state:np.ndarray, action:int, reward:float, next_state:np.ndarray, done:bool, td_error:float) -> None:
         """Saves the state,action,reward,next_state tuple
 
         Saves the necessary variables that we need update the model. We set next_state to None if we are done
@@ -146,7 +147,7 @@ class Agent:
         
         if done:
             next_state = None
-        self.memory.append((state,action,reward,next_state))
+        self.memory.append(td_error,(state,action,reward,next_state))
 
     def train(self) -> typing.Optional[float]:
         """Replays the memories and updates the model
@@ -161,7 +162,7 @@ class Agent:
         if len(self.memory) < self.mini_batch_size:
             return None
         
-        memories = random.sample(self.memory, k = self.mini_batch_size)
+        memories, indicies = self.memory.sample(self.mini_batch_size)
         state, action, reward, next_state = zip(*memories)
 
         states = torch.from_numpy(np.array(state)).float().to(self.device)
@@ -178,6 +179,9 @@ class Agent:
             target[non_terminal_mask] = self.gamma * self.target_model(next_states[non_terminal_mask]).gather(1, next_action.unsqueeze(1)).squeeze()
             target += rewards
             target = target.unsqueeze(1)
+            td_error = (target - q_values).abs()
+            priorities = td_error.detach().cpu().squeeze().tolist()
+            self.memory.update_all_td(indicies, priorities)
         loss = self.loss_fn(q_values, target)
 
         self.optimizer.zero_grad()

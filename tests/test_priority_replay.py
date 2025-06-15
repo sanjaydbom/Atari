@@ -1,126 +1,159 @@
 import pytest
-import numpy as np
-from unittest.mock import patch
-from src.priority_replay import PriorityReplay  # Replace with your actual module name
+import random
+import math
 
-class TestSumTree:
-    @pytest.fixture
-    def sum_tree(self):
-        return PriorityReplay(capacity=4)
+from src.priority_replay import PriorityReplay
 
-    def test_init(self, sum_tree):
-        """Test initialization of SumTree."""
-        assert sum_tree.capacity == 4
-        assert len(sum_tree.tree) == 8  # 2 * capacity for complete binary tree
-        assert len(sum_tree.data) == 4  # Data array matches capacity
-        assert sum_tree.size == 0
-        assert sum_tree.data_pointer == 0
-        assert sum_tree.get_total() == 0
 
-    def test_add_single(self, sum_tree):
-        """Test adding a single element."""
-        sum_tree.add(priority=2.0, element="data1")
-        assert sum_tree.size == 1
-        assert sum_tree.data[0] == "data1"
-        assert sum_tree.tree[sum_tree.capacity - 1] == 2.0  # Leaf node
-        assert sum_tree.get_total() == 2.0  # Root node
-        assert sum_tree.tree[0] == 2.0  # Root node
+# A small capacity for easier and faster testing
+TEST_CAPACITY = 8
 
-    def test_add_multiple(self, sum_tree):
-        """Test adding multiple elements."""
-        sum_tree.add(priority=2.0, element="data1")
-        sum_tree.add(priority=3.0, element="data2")
-        assert sum_tree.size == 2
-        assert sum_tree.data[0] == "data1"
-        assert sum_tree.data[1] == "data2"
-        assert sum_tree.tree[sum_tree.capacity - 1] == 2.0
-        assert sum_tree.tree[sum_tree.capacity] == 3.0
-        assert sum_tree.get_total() == 5.0
-        assert sum_tree.tree[0] == 5.0
+@pytest.fixture
+def replay_buffer():
+    """
+    Pytest fixture to create a PriorityReplay instance with a small capacity
+    for each test, ensuring tests are isolated.
+    """
+    # This fixture assumes a dummy MEMORY_SIZE if config is not present
+    try:
+        from src.priority_replay import MEMORY_SIZE
+    except ImportError:
+        # Define a dummy value if config doesn't exist, so PriorityReplay can init
+        import priority_replay
+        priority_replay.MEMORY_SIZE = 100 
+        
+    return PriorityReplay(capacity=TEST_CAPACITY)
 
-    def test_add_beyond_capacity(self, sum_tree):
-        """Test adding elements beyond capacity (should overwrite)."""
-        for i in range(5):
-            sum_tree.add(priority=float(i + 1), element=f"data{i + 1}")
-        assert sum_tree.size == 4  # Size capped at capacity
-        assert sum_tree.data[0] == "data5"  # Overwritten
-        assert sum_tree.data[1] == "data2"
-        assert sum_tree.data[2] == "data3"
-        assert sum_tree.data[3] == "data4"
-        assert sum_tree.get_total() == 14.0  # 5 + 2 + 3 + 4
+def test_initialization(replay_buffer):
+    """
+    Tests that the buffer is initialized correctly with empty values.
+    """
+    assert len(replay_buffer) == 0
+    assert replay_buffer.size == 0
+    assert replay_buffer.get_total() == 0
+    assert replay_buffer.capacity == TEST_CAPACITY
+    # A complete sum tree has 2*capacity - 1 nodes
+    assert len(replay_buffer.tree) == 2 * TEST_CAPACITY - 1
 
-    def test_get_total_empty(self, sum_tree):
-        """Test get_total on an empty tree."""
-        assert sum_tree.get_total() == 0
+def test_append_single_element(replay_buffer):
+    """
+    Tests appending a single element to the buffer and checks tree integrity.
+    """
+    replay_buffer.append(1.0, "experience_1")
+    assert len(replay_buffer) == 1
+    assert replay_buffer.get_total() == 1.0
+    assert replay_buffer.data[0] == "experience_1"
+    # The leaf node in the tree should have the priority
+    leaf_index = replay_buffer.capacity - 1
+    assert replay_buffer.tree[leaf_index] == 1.0
+    # The root should also be updated
+    assert replay_buffer.tree[0] == 1.0
 
-    def test_sample_empty(self, sum_tree):
-        """Test sampling from an empty tree."""  # Adjust based on your implementation
-        assert sum_tree.sample() == None
+def test_append_multiple_elements(replay_buffer):
+    """
+    Tests appending multiple elements and verifies the total priority (tree root).
+    """
+    experiences = [("e1", 0.5), ("e2", 1.0), ("e3", 0.2)]
+    total_priority = 0
+    for i, (exp, prio) in enumerate(experiences):
+        replay_buffer.append(prio, exp)
+        total_priority += prio
+        assert len(replay_buffer) == i + 1
+        # Use pytest.approx for floating point comparisons
+        assert pytest.approx(replay_buffer.get_total()) == total_priority
 
-    @patch('numpy.random.uniform')
-    def test_sample_single(self, mock_random, sum_tree):
-        """Test sampling with a single element."""
-        sum_tree.add(priority=2.0, element="data1")
-        mock_random.return_value = 1.0
-        idx, priority, data = sum_tree.sample()
-        assert idx == sum_tree.capacity - 1
-        assert priority == 2.0
-        assert data == "data1"
+def test_buffer_overwrite_logic(replay_buffer):
+    """
+    Tests that the buffer correctly overwrites the oldest elements when its
+    capacity is exceeded.
+    """
+    # Fill the buffer to capacity
+    for i in range(TEST_CAPACITY):
+        replay_buffer.append(i + 1.0, f"experience_{i}")
 
-    @patch('random.uniform')
-    def test_sample_multiple(self, mock_random, sum_tree):
-        """Test sampling with multiple elements."""
-        # Add elements
-        sum_tree.add(priority=2.0, element="data1")
-        sum_tree.add(priority=3.0, element="data2")
-        sum_tree.add(priority=1.0, element="data3")
+    assert len(replay_buffer) == TEST_CAPACITY
+    initial_total = sum(range(1, TEST_CAPACITY + 1))
+    assert pytest.approx(replay_buffer.get_total()) == initial_total
+    
+    # Add one more element to trigger overwrite at the beginning
+    replay_buffer.append(10.0, "new_experience")
 
-        # Verify tree state
-        assert sum_tree.size == 3, f"Expected size 3, got {sum_tree.size}"
-        assert sum_tree.get_total() == 6.0, f"Expected total sum 6.0, got {sum_tree.get_total()}"
-        assert sum_tree.tree[sum_tree.capacity - 1] == 2.0, f"Expected leaf[0] = 2.0, got {sum_tree.tree[sum_tree.capacity - 1]}"
-        assert sum_tree.tree[sum_tree.capacity] == 3.0, f"Expected leaf[1] = 3.0, got {sum_tree.tree[sum_tree.capacity]}"
-        assert sum_tree.tree[sum_tree.capacity + 1] == 1.0, f"Expected leaf[2] = 1.0, got {sum_tree.tree[sum_tree.capacity + 1]}"
+    assert len(replay_buffer) == TEST_CAPACITY
+    # The first element (priority 1.0) should be replaced by the new one (priority 10.0)
+    expected_total = initial_total - 1.0 + 10.0
+    assert pytest.approx(replay_buffer.get_total()) == expected_total
+    # Check that the data was overwritten at the first position
+    assert replay_buffer.data[0] == "new_experience"
+    assert "experience_0" not in replay_buffer.data
 
-        # Mock random values to hit specific leaves
-        mock_random.side_effect = [0.5, 2.5, 5.5]  # Changed 4.5 to 5.5 for data3
+def test_sample_from_empty_buffer(replay_buffer):
+    """
+    Tests that sampling from an empty buffer returns None as per the implementation.
+    """
+    result = replay_buffer.sample(4)
+    assert result is None
 
-        # Sample first element (s = 0.5, should pick data1)
-        idx, priority, data = sum_tree.sample()
-        assert idx == sum_tree.capacity - 1, f"Expected idx {sum_tree.capacity - 1}, got {idx}"
-        assert priority == 2.0, f"Expected priority 2.0, got {priority}"
-        assert data == "data1", f"Expected data 'data1', got {data}"
+def test_sample_returns_correct_format(replay_buffer):
+    """
+    Tests that the sample method returns a tuple of two lists (samples and indices)
+    of the correct length.
+    """
+    replay_buffer.append(1.0, "e1")
+    replay_buffer.append(1.0, "e2")
+    
+    num_samples = 2
+    samples, indices = replay_buffer.sample(num_samples)
 
-        # Sample second element (s = 2.5, should pick data2)
-        idx, priority, data = sum_tree.sample()
-        assert idx == sum_tree.capacity, f"Expected idx {sum_tree.capacity}, got {idx}"
-        assert priority == 3.0, f"Expected priority 3.0, got {priority}"
-        assert data == "data2", f"Expected data 'data2', got {data}"
+    assert isinstance(samples, list)
+    assert isinstance(indices, list)
+    assert len(samples) == num_samples
+    assert len(indices) == num_samples
+    assert "e" in samples[0] # check content
+    assert isinstance(indices[0], int) # check content
 
-        # Sample third element (s = 5.5, should pick data3)
-        idx, priority, data = sum_tree.sample()
-        assert idx == sum_tree.capacity + 1, f"Expected idx {sum_tree.capacity + 1}, got {idx}"
-        assert priority == 1.0, f"Expected priority 1.0, got {priority}"
-        assert data == "data3", f"Expected data 'data3', got {data}"
+def test_update_all_td(replay_buffer):
+    """
+    Tests the batch update functionality of update_all_td.
+    """
+    # Add 4 elements with initial priorities
+    replay_buffer.append(1.0, "e1") # index: 7
+    replay_buffer.append(2.0, "e2") # index: 8
+    replay_buffer.append(3.0, "e3") # index: 9
+    replay_buffer.append(4.0, "e4") # index: 10
+    assert pytest.approx(replay_buffer.get_total()) == 10.0
 
-    def test_sample_distribution(self, sum_tree):
-        """Test sampling distribution (statistical test)."""
-        sum_tree.add(priority=1.0, element="data1")
-        sum_tree.add(priority=3.0, element="data2")
-        sum_tree.add(priority=1.0, element="data3")
+    # The tree indices for the first 4 elements in a tree with capacity 8 are 7, 8, 9, 10
+    indices_to_update = [7, 9] 
+    new_priorities = [5.0, 6.0]
 
-        # Run multiple samples and check distribution
-        samples = {0: 0, 1: 0, 2: 0}
-        n_samples = 10000
-        for _ in range(n_samples):
-            idx, _, _ = sum_tree.sample()
-            samples[idx - (sum_tree.capacity - 1)] += 1
+    replay_buffer.update_all_td(indices_to_update, new_priorities)
 
-        # Expected probabilities: 1/5, 3/5, 1/5
-        expected = [0.2, 0.6, 0.2]
-        observed = [samples[i] / n_samples for i in range(3)]
-        for o, e in zip(observed, expected):
-            assert abs(o - e) < 0.05  # Allow small statistical variation
+    # Original total was 10.0.
+    # We updated index 7 from 1.0 to 5.0 (change of +4.0)
+    # We updated index 9 from 3.0 to 6.0 (change of +3.0)
+    # New total should be 10.0 + 4.0 + 3.0 = 17.0
+    expected_total = (10.0 - 1.0 - 3.0) + 5.0 + 6.0
+    assert pytest.approx(replay_buffer.get_total()) == expected_total
+    assert replay_buffer.tree[7] == 5.0
+    assert replay_buffer.tree[9] == 6.0
 
-if __name__ == '__main__':
-    pytest.main()
+def test_priority_sampling_is_biased(replay_buffer):
+    """
+    Tests that elements with higher priority are sampled more frequently.
+    """
+    # Add one element with a very high priority and others with low priority
+    replay_buffer.append(1000.0, "high_priority_exp")
+    for i in range(TEST_CAPACITY - 1):
+        replay_buffer.append(0.01, f"low_priority_exp_{i}")
+
+    # Sample many times
+    num_samples = 1000
+    samples, _ = replay_buffer.sample(num_samples)
+    
+    # Count the occurrences of the high-priority sample
+    high_priority_count = samples.count("high_priority_exp")
+
+    # The high-priority element should be sampled a vast majority of the time.
+    # We expect it to be chosen >95% of the time given the extreme priority difference.
+    assert high_priority_count > 950
+
