@@ -19,8 +19,8 @@ def replay_buffer():
         from src.priority_replay import MEMORY_SIZE
     except ImportError:
         # Define a dummy value if config doesn't exist, so PriorityReplay can init
-        import priority_replay
-        priority_replay.MEMORY_SIZE = 100 
+        import src.priority_replay
+        src.priority_replay.MEMORY_SIZE = 100 
         
     return PriorityReplay(capacity=TEST_CAPACITY)
 
