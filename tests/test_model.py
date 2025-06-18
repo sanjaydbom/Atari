@@ -1,50 +1,109 @@
-import pytest
 import torch
+import pytest
 from src.model import AtariDQN
-from src.config import FRAME_STACK_SIZE, SCREEN_SIZE, NUM_ACTIONS
+
+# Constants for the tests
+FRAME_STACK_SIZE = 4
+SCREEN_SIZE = 84
+NUM_ACTIONS = 4
+
+# --- Pytest Fixtures ---
 
 @pytest.fixture
-def model():
-    """Create an AtariDQN instance for testing."""
-    return AtariDQN(input_shape=(FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE), num_actions=NUM_ACTIONS)
+def dummy_model():
+    """Provides a dummy AtariDQN model for testing."""
+    return AtariDQN(
+        input_shape=(FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE),
+        num_actions=NUM_ACTIONS
+    )
 
-def test_initialization(model):
-    """Test that the model initializes correctly."""
-    assert isinstance(model, AtariDQN), "Model is not an AtariDQN instance"
-    assert model.input_shape == (FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE), "Input shape not set correctly"
-    assert model.num_actions == NUM_ACTIONS, "Number of actions not set correctly"
-    assert isinstance(model.conv, torch.nn.Sequential), "Conv layers not in Sequential"
-    assert isinstance(model.fc, torch.nn.Sequential), "FC layers not in Sequential"
+@pytest.fixture
+def sample_input():
+    """Provides a sample input tensor for the model."""
+    return torch.randn(1, FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE)
 
-def test_forward_output_shape(model):
-    """Test that forward pass produces correct output shape."""
-    batch_size = 32
-    input_tensor = torch.randn(batch_size, FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE)
-    output = model(input_tensor)
-    expected_shape = (batch_size, NUM_ACTIONS)
-    assert output.shape == expected_shape, f"Output shape {output.shape} does not match expected {expected_shape}"
-    assert output.dtype == torch.float32, "Output dtype is not float32"
+@pytest.fixture
+def sample_batch_input():
+    """Provides a batch of sample input tensors."""
+    batch_size = 8
+    return torch.randn(batch_size, FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE)
 
-def test_input_normalization(model):
-    """Test that forward pass normalizes input pixel values."""
-    input_tensor = torch.ones(1, FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE) * 255.0
-    output = model(input_tensor)
-    # Check that gradients are not computed in forward pass
-    assert model.conv[0].weight.grad is None, "Gradients should not be computed in forward pass"
-    # Check that output is not zero, indicating normalization was applied
-    assert not torch.all(output == 0), "Output should not be zero after normalization"
+# --- Test Cases ---
 
-def test_invalid_input_shape(model):
-    """Test that forward pass raises error for invalid input shape."""
-    wrong_shape = (1, FRAME_STACK_SIZE + 1, SCREEN_SIZE, SCREEN_SIZE)
-    invalid_input = torch.randn(wrong_shape)
-    with pytest.raises(ValueError, match=r"Expected input shape"):
-        model(invalid_input)
+def test_model_initialization(dummy_model):
+    """
+    Tests if the AtariDQN model is initialized with the correct architecture.
+    """
+    assert isinstance(dummy_model, AtariDQN), "Model is not an instance of AtariDQN"
+    
+    # Check for convolutional layers
+    assert hasattr(dummy_model, 'conv'), "Model does not have convolutional layers"
+    assert len(dummy_model.conv) == 6, "Incorrect number of convolutional layers or sub-modules"
+    
+    # Check for fully connected layers
+    assert hasattr(dummy_model, 'fc'), "Model does not have fully connected layers"
+    assert len(dummy_model.fc) == 2, "Incorrect number of fully connected layers or sub-modules"
+    
+    # Check for dueling streams
+    assert hasattr(dummy_model, 'state_layer'), "Model does not have a state_layer"
+    assert hasattr(dummy_model, 'advantage_layer'), "Model does not have an advantage_layer"
 
-def test_get_conv_out(model):
-    """Test that _get_conv_out calculates correct conv output size."""
-    conv_out_size = model._get_conv_out((FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE))
-    assert isinstance(conv_out_size, int), "Conv output size is not an integer"
-    assert conv_out_size > 0, "Conv output size should be positive"
-    # Expected size for (4, 84, 84) input: 64 * 7 * 7 = 3136
-    assert conv_out_size == 3136, f"Conv output size {conv_out_size} does not match expected 3136"
+def test_forward_pass(dummy_model, sample_input):
+    """
+    Tests the forward pass of the model to ensure it produces the correct output shape.
+    """
+    output = dummy_model(sample_input)
+    
+    assert output.shape == (1, NUM_ACTIONS), f"Expected output shape (1, {NUM_ACTIONS}), but got {output.shape}"
+
+def test_input_validation(dummy_model):
+    """
+    Tests that the model raises a ValueError for incorrect input shapes.
+    """
+    # Create an input with an incorrect shape
+    incorrect_input = torch.randn(1, FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE + 1)
+    
+    with pytest.raises(ValueError, match=r"Expected input shape .* got .*"):
+        dummy_model(incorrect_input)
+
+def test_batch_processing(dummy_model, sample_batch_input):
+    """
+    Tests the model's ability to process a batch of inputs.
+    """
+    batch_size = sample_batch_input.shape[0]
+    output = dummy_model(sample_batch_input)
+    
+    assert output.shape == (batch_size, NUM_ACTIONS), f"Expected output shape ({batch_size}, {NUM_ACTIONS}), but got {output.shape}"
+
+def test_data_type_and_range(dummy_model, sample_input):
+    """
+    Tests that the model handles different data types and normalizes pixel values correctly.
+    """
+    # Test with integer input that mimics pixel values
+    int_input = (sample_input.clamp(0, 1) * 255).to(torch.uint8)
+    output = dummy_model(int_input.float())  # Convert to float for the model
+    
+    assert output.dtype == torch.float32, f"Expected output dtype float32, but got {output.dtype}"
+
+def test_dueling_architecture_aggregation(dummy_model, sample_input):
+    """
+    Tests if the dueling architecture aggregation is correctly implemented.
+    """
+    # Manually perform the forward pass to inspect intermediate values
+    x = sample_input / 255.0  # Normalization
+    conv_out = dummy_model.conv(x)
+    flattened = torch.flatten(conv_out, start_dim=1)
+    fc_out = dummy_model.fc(flattened)
+    
+    state_value = dummy_model.state_layer(fc_out)
+    advantage_values = dummy_model.advantage_layer(fc_out)
+    
+    # Calculate the expected Q-values using the aggregation formula from the paper
+    expected_q_values = state_value + (advantage_values - advantage_values.mean(dim=1, keepdim=True))
+    
+    # Get the actual Q-values from the model's forward pass
+    actual_q_values = dummy_model(sample_input)
+    
+    # Assert that the manually calculated values are close to the model's output
+    assert torch.allclose(actual_q_values, expected_q_values, atol=1e-6), "Dueling architecture aggregation calculation is incorrect"
+

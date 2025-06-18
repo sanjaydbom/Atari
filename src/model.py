@@ -3,10 +3,10 @@ from torch import nn
 from .config import FRAME_STACK_SIZE, SCREEN_SIZE
 
 class AtariDQN(nn.Module):
-    """Convolution Neural Network for Deep Q-Learning on Atari Games
+    """Dueling Convolution Neural Network for Deep Q-Learning on Atari Games
     
     Processes stacked frames from AtariBreakoutEnv and outputs Q-values for each action.
-    Architecture follows Mnih et al., 2015.
+    Architecture follows Wang et al., 2016.
 
     Args:
         input_shape (tuple): Shape of input state (stack_size, height, width).
@@ -14,7 +14,12 @@ class AtariDQN(nn.Module):
 
     Attributes:
         conv (nn.Sequential): Convolutional layers for feature extraction.
-        fc (nn.Sequential): Fully connected layers for Q-value prediction.
+        fc (nn.Sequential): Fully connected layers.
+        state_layer(nn.Linear): Fully connected layer to compute state value
+        advantage_layer(nn.Linear): Fully connected layer to compute action advantages
+
+    Notes:
+        See https://arxiv.org/pdf/1511.06581 for more information
     
     """
     def __init__(self, input_shape: tuple = (FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE), num_actions: int = 4):
@@ -31,10 +36,11 @@ class AtariDQN(nn.Module):
         )
         conv_out_size = self._get_conv_out(input_shape)
         self.fc = nn.Sequential(
-            nn.Linear(conv_out_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, num_actions)
+            nn.Linear(conv_out_size, 512),
+            nn.ReLU()
         )
+        self.state_layer = nn.Linear(512,1)
+        self.advantage_layer = nn.Linear(512,num_actions)
 
     def _get_conv_out(self, shape: tuple) -> int:
         """Calculate the output size of the convolutional layers.
@@ -73,4 +79,7 @@ class AtariDQN(nn.Module):
         x = self.conv(x)
         x = torch.flatten(x, start_dim=1)
         x = self.fc(x)
-        return x
+        state = self.state_layer(x)
+        action = self.advantage_layer(x)
+        state_action = state + action - torch.mean(action)
+        return state_action
