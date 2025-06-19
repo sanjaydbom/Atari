@@ -31,18 +31,22 @@ class NoisyConv2d(nn.Module):
 
 
     def forward(self, x:torch.tensor):
-        epsilon_in = torch.randn(1,self.input_shape,1,1).to(x.device)
-        epsilon_out = torch.randn(self.num_kernels,1,1,1).to(x.device)
+        if self.training:
+            epsilon_in = torch.randn(1,self.input_shape,1,1).to(x.device)
+            epsilon_out = torch.randn(self.num_kernels,1,1,1).to(x.device)
 
-        f_in = fun(epsilon_in)
-        f_out = fun(epsilon_out)
+            f_in = fun(epsilon_in)
+            f_out = fun(epsilon_out)
 
-        epsilon_kernel = (f_out * f_in).expand_as(self.mu_k)
-        
-        epsilon_bias = f_out.squeeze()
+            epsilon_kernel = (f_out * f_in).expand_as(self.mu_k)
 
-        noisy_weights = self.mu_k + self.sigma_k * epsilon_kernel
-        noisy_bias = self.mu_b + self.sigma_b * epsilon_bias
+            epsilon_bias = f_out.squeeze()
+
+            noisy_weights = self.mu_k + self.sigma_k * epsilon_kernel
+            noisy_bias = self.mu_b + self.sigma_b * epsilon_bias
+        else:
+            noisy_weights = self.mu_k
+            noisy_bias = self.mu_b
 
         return nn.functional.conv2d(x,noisy_weights,noisy_bias,self.stride)
 

@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from .config import FRAME_STACK_SIZE, SCREEN_SIZE
+from Noisy_Linear import NoisyLinear, fun
+from Noisy_Conv2d import NoisyConv2d
 
 class AtariDQN(nn.Module):
     """Dueling Convolution Neural Network for Deep Q-Learning on Atari Games
@@ -27,16 +29,16 @@ class AtariDQN(nn.Module):
         self.input_shape = input_shape
         self.num_actions = num_actions
         self.conv = nn.Sequential(
-            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4),
+            NoisyConv2d(input_shape[0], 32, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            NoisyConv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            NoisyConv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU()
         )
         conv_out_size = self._get_conv_out(input_shape)
         self.fc = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
+            NoisyLinear(conv_out_size, 512),
             nn.ReLU()
         )
         self.state_layer = nn.Linear(512,1)
