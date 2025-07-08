@@ -1,6 +1,7 @@
 GAME_MODE = "ALE/Breakout-v5"
 ACTION_SPACE = [0,1,2,3]
 NUM_ACTIONS = len(ACTION_SPACE)
+
 #Parameters of the environment(environment.py)
 FRAMESKIP = 4
 FRAME_STACK_SIZE = 4
@@ -25,12 +26,16 @@ EPS = 0.01
 
 MINI_BATCH_SIZE = 32
 
-MEMORY_SIZE = 3e5
+MEMORY_SIZE = int(3e5)
 CLIP_GRADIENT = True
 MAX_GRADIENT = 10.0
 
 NETWORK_VALIDATION_FREQUENCY = 1e3
 TAU = 1e-4
+
+NUM_BINS = 51
+MAX_BIN_VALUE = 10
+MIN_BIN_VALUE = -10
 
 #Training parameters(train.py)
 MAX_STEPS = 1e7

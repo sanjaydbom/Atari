@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from .config import FRAME_STACK_SIZE, SCREEN_SIZE
-from Noisy_Linear import NoisyLinear, fun
-from Noisy_Conv2d import NoisyConv2d
+from .Noisy_Linear import NoisyLinear, fun
+from .Noisy_Conv2d import NoisyConv2d
 
 class AtariDQN(nn.Module):
     """Dueling Convolution Neural Network for Deep Q-Learning on Atari Games
@@ -24,10 +24,11 @@ class AtariDQN(nn.Module):
         See https://arxiv.org/pdf/1511.06581 for more information
     
     """
-    def __init__(self, input_shape: tuple = (FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE), num_actions: int = 4):
+    def __init__(self, input_shape: tuple = (FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE), num_actions: int = 4, num_bins = 51):
         super(AtariDQN, self).__init__()
         self.input_shape = input_shape
         self.num_actions = num_actions
+        self.num_bins = num_bins
         self.conv = nn.Sequential(
             NoisyConv2d(input_shape[0], 32, kernel_size=8, stride=4),
             nn.ReLU(),
@@ -41,8 +42,8 @@ class AtariDQN(nn.Module):
             NoisyLinear(conv_out_size, 512),
             nn.ReLU()
         )
-        self.state_layer = nn.Linear(512,1)
-        self.advantage_layer = nn.Linear(512,num_actions)
+        self.state_layer = nn.Linear(512,num_bins)
+        self.advantage_layer = nn.Linear(512,num_actions * num_bins)
 
     def _get_conv_out(self, shape: tuple) -> int:
         """Calculate the output size of the convolutional layers.
@@ -81,7 +82,14 @@ class AtariDQN(nn.Module):
         x = self.conv(x)
         x = torch.flatten(x, start_dim=1)
         x = self.fc(x)
-        state = self.state_layer(x)
-        action = self.advantage_layer(x)
-        state_action = state + action - torch.mean(action)
+        value = self.state_layer(x)
+        advantage = self.advantage_layer(x)
+
+        advantage = advantage.view(-1,self.num_actions,self.num_bins)
+        value = value.unsqueeze(1).expand_as(advantage)
+        mean_advantage = advantage.mean(dim=1, keepdim = True)
+
+        state_action = value + advantage - mean_advantage
+
+        state_action = nn.functional.log_softmax(state_action, dim=-1)
         return state_action
