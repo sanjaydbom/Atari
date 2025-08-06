@@ -56,9 +56,10 @@ def test_initialization(setup_noisy_conv2d_params):
     assert layer.mu_b.shape == (params["num_kernels"],)
     assert layer.sigma_b.shape == (params["num_kernels"],)
 
+    fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(layer.mu_k)
     # Check initial values of sigma_k and sigma_b
-    assert torch.all(layer.sigma_k == params["std_init"])
-    assert torch.all(layer.sigma_b == params["std_init"])
+    assert torch.all(layer.sigma_k == params["std_init"] / math.sqrt(fan_in))
+    assert torch.all(layer.sigma_b == params["std_init"] / math.sqrt(fan_in))
 
     print("Initialization test passed: Parameter shapes and initial sigma values are correct.")
 

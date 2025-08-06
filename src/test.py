@@ -5,12 +5,12 @@ import numpy as np
 class ModelEvaluator():
     def __init__(self,model, env = AtariBreakoutEnv, num_tests = NUM_TESTS):
         self.model = model
-        self.env = env
+        self.env = env()
         self.num_tests = num_tests
 
     def evaluate(self):
         scores = []
-        for _ in range(self.num_tests):
+        for i in range(self.num_tests):
             score = 0
             state = self.env.reset()
             while True:

@@ -1,5 +1,6 @@
 import gymnasium as gym
 import ale_py
+import numpy as np
 from gymnasium.wrappers import AtariPreprocessing, FrameStackObservation, TransformReward
 from .config import GAME_MODE,FRAMESKIP,FRAME_STACK_SIZE,SCREEN_SIZE,GRAYSCALE,SCALE,CLIP_REWARD,CLIP_BOUND
 
@@ -65,7 +66,6 @@ class AtariBreakoutEnv:
             - reward (float): Reward for the action, clipped to [-1, 1] if reward_clipping is True.
             - done (bool): Whether the episode has ended (terminated or truncated).
         """
-
         next_state, reward, terminated, truncated, _ = self.env.step(action)
         done = terminated or truncated
         return next_state, reward, done

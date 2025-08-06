@@ -31,19 +31,23 @@ class AtariDQN(nn.Module):
         self.num_bins = num_bins
         self.conv = nn.Sequential(
             NoisyConv2d(input_shape[0], 32, kernel_size=8, stride=4),
+            #nn.Conv2d(input_shape[0],32,8,4),
             nn.ReLU(),
             NoisyConv2d(32, 64, kernel_size=4, stride=2),
+            #nn.Conv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(),
             NoisyConv2d(64, 64, kernel_size=3, stride=1),
+            #nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU()
         )
         conv_out_size = self._get_conv_out(input_shape)
         self.fc = nn.Sequential(
             NoisyLinear(conv_out_size, 512),
+            #nn.Linear(conv_out_size, 512),
             nn.ReLU()
         )
-        self.state_layer = nn.Linear(512,num_bins)
-        self.advantage_layer = nn.Linear(512,num_actions * num_bins)
+        self.state_layer = NoisyLinear(512,num_bins)#nn.Linear(512,num_bins)#
+        self.advantage_layer = NoisyLinear(512,num_actions * num_bins)#nn.Linear(512,num_actions * num_bins)#
 
     def _get_conv_out(self, shape: tuple) -> int:
         """Calculate the output size of the convolutional layers.
@@ -76,9 +80,8 @@ class AtariDQN(nn.Module):
             ValueError: If input shape does not match expected input_shape.        
         """
         if x.shape[1:] != self.input_shape:
-            raise ValueError(f"Expected input shape {self.input_shape}, got {x.shape[1:]}")
+            raise ValueError(f"Expected input shape {self.input_shape}, got {x.shape}")
         
-        x = x / 255.0
         x = self.conv(x)
         x = torch.flatten(x, start_dim=1)
         x = self.fc(x)
@@ -91,5 +94,4 @@ class AtariDQN(nn.Module):
 
         state_action = value + advantage - mean_advantage
 
-        state_action = nn.functional.log_softmax(state_action, dim=-1)
         return state_action

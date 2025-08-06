@@ -26,7 +26,7 @@ class NoisyLinear(nn.Module):
     def reset(self):
         nn.init.kaiming_uniform_(self.mu_w, a=math.sqrt(5))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.mu_w)
-        bound = 1 / math.sqrt(fan_in)
+        bound = 0.5 / math.sqrt(fan_in)
         nn.init.uniform_(self.mu_b, -bound, bound)
 
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.mu_w)

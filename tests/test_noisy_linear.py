@@ -14,170 +14,114 @@ from src.Noisy_Linear import NoisyLinear, fun
 
 # --- Pytest Test Cases ---
 
-# Define a fixture for a common NoisyLinear instance
+
 @pytest.fixture
 def noisy_linear_layer():
-    """Provides a default NoisyLinear layer for testing."""
-    return NoisyLinear(input_size=10, output_size=5)
+    """Pytest fixture to create a NoisyLinear layer."""
+    return NoisyLinear(10, 5)
 
-# Test 1: Initialization of parameters
 def test_initialization(noisy_linear_layer):
     """
-    Tests if the parameters (mu_w, sigma_w, mu_b, sigma_b) are
-    correctly initialized as nn.Parameter and have the right shapes.
+    Tests that the NoisyLinear layer is initialized correctly.
     """
-    assert isinstance(noisy_linear_layer.mu_w, nn.Parameter)
-    assert isinstance(noisy_linear_layer.sigma_w, nn.Parameter)
-    assert isinstance(noisy_linear_layer.mu_b, nn.Parameter)
-    assert isinstance(noisy_linear_layer.sigma_b, nn.Parameter)
+    assert noisy_linear_layer.input_size == 10
+    assert noisy_linear_layer.output_size == 5
+    assert isinstance(noisy_linear_layer.weight_mu, nn.Parameter)
+    assert isinstance(noisy_linear_layer.weight_sigma, nn.Parameter)
+    assert isinstance(noisy_linear_layer.bias_mu, nn.Parameter)
+    assert isinstance(noisy_linear_layer.bias_sigma, nn.Parameter)
+    assert 'weight_epsilon' in noisy_linear_layer._buffers
+    assert 'bias_epsilon' in noisy_linear_layer._buffers
 
-    assert noisy_linear_layer.mu_w.shape == (5, 10)
-    assert noisy_linear_layer.sigma_w.shape == (5, 10)
-    assert noisy_linear_layer.mu_b.shape == (5,)
-    assert noisy_linear_layer.sigma_b.shape == (5,)
-
-    # Check if sigma values are initialized to a small constant (approx 0.5/sqrt(fan_in))
-    # Due to fan_in calculation, this will be roughly 0.5/sqrt(10)
-    expected_sigma_init = 0.5 / math.sqrt(10)
-    assert torch.allclose(noisy_linear_layer.sigma_w, torch.full((5, 10), expected_sigma_init), atol=1e-6)
-    assert torch.allclose(noisy_linear_layer.sigma_b, torch.full((5,), expected_sigma_init), atol=1e-6)
-
-
-# Test 2: Output shape
-def test_output_shape(noisy_linear_layer):
+def test_forward_pass_shape(noisy_linear_layer):
     """
-    Tests if the output tensor has the expected shape for a given input.
+    Tests the shape of the output of the forward pass.
     """
-    input_tensor = torch.randn(1, 10) # Batch size 1, input_size 10
+    input_tensor = torch.randn(3, 10) # Batch size of 3
     output = noisy_linear_layer(input_tensor)
-    assert output.shape == (1, 5) # Batch size 1, output_size 5
+    assert output.shape == (3, 5)
 
-    input_tensor_batch = torch.randn(32, 10) # Batch size 32
-    output_batch = noisy_linear_layer(input_tensor_batch)
-    assert output_batch.shape == (32, 5)
-
-
-# Test 3: Noise in training mode (stochasticity)
-def test_training_mode_noise(noisy_linear_layer):
+def test_forward_pass_training_vs_eval(noisy_linear_layer):
     """
-    Tests that the output is different for multiple calls in training mode,
-    indicating the presence of noise.
+    Tests that the output is different in training and evaluation modes.
     """
-    noisy_linear_layer.train() # Set to training mode
     input_tensor = torch.randn(1, 10)
 
-    output1 = noisy_linear_layer(input_tensor)
-    output2 = noisy_linear_layer(input_tensor)
-
-    # Outputs should be different due to random noise
-    assert not torch.allclose(output1, output2, atol=1e-6)
-
-
-# Test 4: Determinism in evaluation mode
-def test_eval_mode_determinism(noisy_linear_layer):
-    """
-    Tests that the output is identical for multiple calls in evaluation mode,
-    as noise should be turned off.
-    """
-    noisy_linear_layer.eval() # Set to evaluation mode
-    input_tensor = torch.randn(1, 10)
-
-    with torch.no_grad(): # No need to track gradients in eval mode
-        output1 = noisy_linear_layer(input_tensor)
-        output2 = noisy_linear_layer(input_tensor)
-
-    # Outputs should be identical in eval mode
-    assert torch.allclose(output1, output2, atol=1e-6)
-
-
-# Test 5: Gradients can be computed for parameters (trainability)
-def test_parameter_trainability(noisy_linear_layer):
-    """
-    Tests that gradients can be computed for mu_w, sigma_w, mu_b, and sigma_b,
-    confirming they are learnable.
-    """
+    # Training mode
     noisy_linear_layer.train()
+    output_train_1 = noisy_linear_layer(input_tensor)
+    noisy_linear_layer.reset_noise() # Get new noise
+    output_train_2 = noisy_linear_layer(input_tensor)
+
+    # Evaluation mode
+    noisy_linear_layer.eval()
+    output_eval_1 = noisy_linear_layer(input_tensor)
+    output_eval_2 = noisy_linear_layer(input_tensor)
+
+    # In training mode, outputs should be different due to noise
+    assert not torch.allclose(output_train_1, output_train_2)
+
+    # In evaluation mode, outputs should be identical
+    assert torch.allclose(output_eval_1, output_eval_2)
+
+    # The training output should be different from the eval output
+    assert not torch.allclose(output_train_1, output_eval_1)
+
+def test_noise_disabled_when_sigma_is_zero(noisy_linear_layer):
+    """
+    Tests that noise has no effect when sigma parameters are zero, even in training mode.
+    """
     input_tensor = torch.randn(1, 10)
-    output = noisy_linear_layer(input_tensor)
-    
-    # Create a dummy loss and backpropagate
-    loss = output.sum()
-    loss.backward()
+    noisy_linear_layer.train()
 
-    # Check if gradients exist for all parameters
-    assert noisy_linear_layer.mu_w.grad is not None
-    assert noisy_linear_layer.sigma_w.grad is not None
-    assert noisy_linear_layer.mu_b.grad is not None
-    assert noisy_linear_layer.sigma_b.grad is not None
+    # Manually set sigma parameters to zero
+    with torch.no_grad():
+        noisy_linear_layer.weight_sigma.fill_(0.0)
+        noisy_linear_layer.bias_sigma.fill_(0.0)
 
-    # Check if gradients are not all zeros (implying non-trivial computation)
-    assert not torch.allclose(noisy_linear_layer.mu_w.grad, torch.zeros_like(noisy_linear_layer.mu_w.grad))
-    assert not torch.allclose(noisy_linear_layer.sigma_w.grad, torch.zeros_like(noisy_linear_layer.sigma_w.grad))
-    assert not torch.allclose(noisy_linear_layer.mu_b.grad, torch.zeros_like(noisy_linear_layer.mu_b.grad))
-    assert not torch.allclose(noisy_linear_layer.sigma_b.grad, torch.zeros_like(noisy_linear_layer.sigma_b.grad))
+    # First forward pass
+    output_train_1 = noisy_linear_layer(input_tensor)
 
+    # Reset noise and do a second pass
+    noisy_linear_layer.reset_noise()
+    output_train_2 = noisy_linear_layer(input_tensor)
 
-# Test 6: Custom noise function
-def test_custom_func():
-    """
-    Tests if the layer correctly uses a custom noise activation function.
-    """
-    def custom_noisy_func(x):
-        return x * 2 # A simple custom function
+    # With zero sigma, outputs should be identical even in training mode with different noise
+    assert torch.allclose(output_train_1, output_train_2)
 
-    layer = NoisyLinear(input_size=5, output_size=2, func=custom_noisy_func)
-    layer.train()
-    input_tensor = torch.randn(1, 5)
+    # The output should also be identical to the evaluation mode output
+    noisy_linear_layer.eval()
+    output_eval = noisy_linear_layer(input_tensor)
+    assert torch.allclose(output_train_1, output_eval)
 
-    # To truly test the custom function, we could mock torch.randn
-    # or inspect intermediate values, but a simpler check is to see if
-    # the 'func' attribute is indeed our custom function.
-    assert layer.func == custom_noisy_func
-
-    # Further, check that noise is still applied (indirectly, by checking stochasticity)
-    output1 = layer(input_tensor)
-    output2 = layer(input_tensor)
-    assert not torch.allclose(output1, output2, atol=1e-6)
-
-
-# Test 7: Reset method re-initializes parameters
 def test_reset_method(noisy_linear_layer):
     """
-    Tests if the reset method changes the parameter values, indicating
-    re-initialization.
+    Tests that the reset method changes the weights and biases.
     """
-    # Store initial parameter values
-    initial_mu_w = noisy_linear_layer.mu_w.clone().detach()
-    initial_sigma_w = noisy_linear_layer.sigma_w.clone().detach()
-    initial_mu_b = noisy_linear_layer.mu_b.clone().detach()
-    initial_sigma_b = noisy_linear_layer.sigma_b.clone().detach()
+    # Store the original parameters
+    original_weight_mu = noisy_linear_layer.weight_mu.clone()
+    original_bias_mu = noisy_linear_layer.bias_mu.clone()
+    original_weight_sigma = noisy_linear_layer.weight_sigma.clone()
+    original_bias_sigma = noisy_linear_layer.bias_sigma.clone()
 
-    # Apply some dummy training steps to change parameters
-    noisy_linear_layer.train()
-    optimizer = torch.optim.SGD(noisy_linear_layer.parameters(), lr=0.01)
-    for _ in range(5):
-        input_tensor = torch.randn(1, 10)
-        output = noisy_linear_layer(input_tensor)
-        loss = output.sum()
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    
-    # Check that parameters have changed after dummy training
-    assert not torch.allclose(noisy_linear_layer.mu_w, initial_mu_w)
-    assert not torch.allclose(noisy_linear_layer.sigma_w, initial_sigma_w)
-    assert not torch.allclose(noisy_linear_layer.mu_b, initial_mu_b)
-    assert not torch.allclose(noisy_linear_layer.sigma_b, initial_sigma_b)
-
-    # Now call reset
     noisy_linear_layer.reset()
 
-    # Verify that parameters are now different from the values after training
-    # (and likely close to their original initialization values, though not identical due to randomness)
-    # The key is they are no longer the 'trained' values
-    assert not torch.allclose(noisy_linear_layer.mu_w, initial_mu_w) # New random init should be different from original
-    
-    # For sigma, they should return to the specific constant value
-    expected_sigma_init = 0.5 / math.sqrt(10)
-    assert torch.allclose(noisy_linear_layer.sigma_w, torch.full((5, 10), expected_sigma_init), atol=1e-6)
-    assert torch.allclose(noisy_linear_layer.sigma_b, torch.full((5,), expected_sigma_init), atol=1e-6)
+    # Check that the parameters have been updated
+    assert not torch.allclose(original_weight_mu, noisy_linear_layer.weight_mu)
+    assert not torch.allclose(original_bias_mu, noisy_linear_layer.bias_mu)
+    assert not torch.allclose(original_weight_sigma, noisy_linear_layer.weight_sigma)
+    assert not torch.allclose(original_bias_sigma, noisy_linear_layer.bias_sigma)
+
+def test_activation_function():
+    """
+    Tests that the activation function is applied correctly.
+    """
+    layer_with_relu = NoisyLinear(10, 5, func=torch.relu)
+    input_tensor = torch.randn(3, 10)
+    output = layer_with_relu(input_tensor)
+
+    # Check if all values in the output are non-negative
+    assert torch.all(output >= 0)
+
+if __name__ == "__main__":
+    pytest.main()

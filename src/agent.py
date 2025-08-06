@@ -8,7 +8,7 @@ import numpy as np
 
 from .model import AtariDQN
 from .priority_replay import PriorityReplay
-from .config import ACTION_SPACE,EPSILON,MIN_EPSILON,EPSILON_REDUCTION,LR,ALPHA,EPS,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_VALIDATION_FREQUENCY, TAU, NUM_BINS, MAX_BIN_VALUE, MIN_BIN_VALUE
+from .config import ACTION_SPACE,LR,EPS,MINI_BATCH_SIZE,GAMMA,CLIP_GRADIENT,MAX_GRADIENT, FRAME_STACK_SIZE, SCREEN_SIZE, NETWORK_UPDATE_FREQUENCY, NUM_BINS, MAX_BIN_VALUE, MIN_BIN_VALUE
 
 class Agent:
     """Agent to learn how to play Atari games
@@ -18,9 +18,6 @@ class Agent:
     
     Args:
         action_space (list[int]): the actions that we can take. Default [0,1,2,3]
-        epsilon (float): the probability of choosing a random action. Default 1.0 or 100%
-        min_epsilon (float): the smallest value we let epsilon get to. Default 0.1
-        epsilon_reduction (float): The amount we reduce epsilon by after each step. Default 9e-7
         lr (float): the amount we update the parameters by. Default 2.5e-4
         alpha, eps (float): parameters used to control RMSprop
         gamma (float): how much we care about future values, higher means we care more about future values. Default 0.99
@@ -34,9 +31,6 @@ class Agent:
         model (Model): the neural network we will be training
         target_model (Model): the network used to evaluate our actions
         action_space (int): the number of actions we can take. Default 4
-        epsilon (float): the probability of choosing a random action. Default 1.0 or 100%
-        min_epsilon (float): the smalled value we let epsilon get to. Default 0.1
-        epsilon_reduction (float): The amount we reduce epsilon by after each step. Default 9e-7
         optimizer (nn.optim.RMSprop): The optimizer that we use to update the parameters in model
         loss_fn (nn.SmoothL1Loss): The function we will use to compute the loss
         memory (deque): used to store our actions to use later to train the model
@@ -50,11 +44,10 @@ class Agent:
         validation_frequency (int): How frequently to we test our model. Default every 5,000 steps
 
     Notes:
-        To learn more about epsilon decay visit "Reinforcement Learning: An Introduction" by Barto and Sutton
         To learn more about RMSprop, visit http://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf 
         To learn more about Network-Target Network Architecture, visit https://www.nature.com/articles/nature14236
     """
-    def __init__(self,action_space: list[int] = ACTION_SPACE, epsilon: float = EPSILON, min_epsilon: float = MIN_EPSILON, epsilon_reduction: float = EPSILON_REDUCTION, lr: float = LR, alpha: float = ALPHA, eps: float = EPS, gamma: float = GAMMA, mini_batch_size: int = MINI_BATCH_SIZE, clip_gradient: bool = CLIP_GRADIENT, max_gradient: float = MAX_GRADIENT, network_validation_frequency = NETWORK_VALIDATION_FREQUENCY, tau = TAU, num_bins = NUM_BINS, max_bin_value = MAX_BIN_VALUE, min_bin_value = MIN_BIN_VALUE):
+    def __init__(self,action_space: list[int] = ACTION_SPACE, lr: float = LR, eps: float = EPS, gamma: float = GAMMA, mini_batch_size: int = MINI_BATCH_SIZE, clip_gradient: bool = CLIP_GRADIENT, max_gradient: float = MAX_GRADIENT, network_validation_frequency = NETWORK_UPDATE_FREQUENCY, num_bins = NUM_BINS, max_bin_value = MAX_BIN_VALUE, min_bin_value = MIN_BIN_VALUE):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("mps" if torch.mps.is_available() else self.device)
         self.model = AtariDQN().to(device=self.device)
@@ -63,12 +56,8 @@ class Agent:
 
         self.action_space = action_space
 
-        self.epsilon = epsilon
-        self.min_epsilon = min_epsilon
-        self.epsilon_reduction = epsilon_reduction
-
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr, alpha = alpha, eps = eps)
-        self.loss_fn = nn.KLDivLoss(reduction='none')
+        self.optimizer = optim.Adam(self.model.parameters(), lr, eps = eps)
+        self.loss_fn = nn.CrossEntropyLoss(reduction='none')
         
         self.memory = PriorityReplay()
 
@@ -76,7 +65,7 @@ class Agent:
         self.mini_batch_size = mini_batch_size
         self.clip_gradient = clip_gradient
         self.max_gradient = max_gradient
-        self.tau = tau
+
 
         self.input_shape = (FRAME_STACK_SIZE, SCREEN_SIZE, SCREEN_SIZE)
         self.num_steps = 0
@@ -107,27 +96,18 @@ class Agent:
         """
         if state.shape != self.input_shape:
             raise ValueError(f"Expected input shape {self.input_shape}, got {state.shape}")
-        if random.random() < self.epsilon and not evaluation:
-            return random.choice(self.action_space)
         else:
             with torch.no_grad():
                 if not isinstance(state, torch.Tensor):
                     state = torch.tensor(state, dtype = torch.float32).unsqueeze(0)
                 state = state.to(self.device)
-                log_dist = self.model(state)
-                dist = torch.exp(log_dist)
+                dist = self.model(state)
                 q_values = (dist * self.bins).sum(dim = 2)
                 action = torch.argmax(q_values).item()
                 return action
-            
-    def update_epsilon(self) -> None:
-        """Reduces epsilon by epsilon_reduction
+                
 
-        It ensures that epsilon isn't lower than min_epsilon
-        """
-        self.epsilon = max(self.epsilon - self.epsilon_reduction, self.min_epsilon)
-
-    def store_experience(self,state:np.ndarray, action:int, reward:float, next_state:np.ndarray, done:bool, td_error:float) -> None:
+    def store_experience(self,state:np.ndarray, action:int, reward:float, next_state:np.ndarray, done:bool) -> None:
         """Saves the state,action,reward,next_state tuple
 
         Saves the necessary variables that we need update the model. We set next_state to None if we are done
@@ -150,10 +130,9 @@ class Agent:
             raise ValueError(f"Expected input shape {self.input_shape}, got {next_state.shape}")
         if not isinstance(action, int) or action not in self.action_space:
             raise ValueError(f"Action {action} not in action space")
-        
         if done:
             next_state = None
-        self.memory.append(td_error,(state,action,reward,next_state))
+        self.memory.append((state,action,reward,next_state))
 
     def train(self) -> typing.Optional[float]:
         """Replays the memories and updates the model
@@ -167,8 +146,7 @@ class Agent:
         """
         if len(self.memory) < self.mini_batch_size:
             return None
-        
-        memories, indicies = self.memory.sample(self.mini_batch_size)
+        memories, indicies, weights = self.memory.sample(self.mini_batch_size)
         state, action, reward, next_state = zip(*memories)
 
         states = torch.from_numpy(np.array(state)).float().to(self.device)
@@ -178,62 +156,50 @@ class Agent:
         next_states = torch.stack([torch.from_numpy(ns).float() if ns is not None else torch.zeros(self.input_shape) for ns in next_state]).to(device=self.device)
         q_values = self.model(states)[torch.arange(states.shape[0]), actions].to(self.device)
         with torch.no_grad():
-            distributions = self.target_model(next_states[non_terminal_mask]).to(self.device)#(non terminal state, num actions, num bins)
-            distributions = torch.exp(distributions).to(self.device)
+            distributions = self.model(next_states[non_terminal_mask]).to(self.device)#(non terminal state, num actions, num bins)
+            distributions = torch.nn.functional.softmax(distributions, dim = -1)
+
             expected_rewards = (distributions * self.bins.unsqueeze(0).unsqueeze(0)).sum(dim=-1).to(self.device)#(non terminal states, num_actions)
             best_actions = torch.argmax(expected_rewards, dim = -1).to(self.device)#(non terminal states)
-            Tz = torch.zeros(self.mini_batch_size, self.num_bins).to(self.device)
-            Tz[non_terminal_mask] += rewards[non_terminal_mask].unsqueeze(1) + self.gamma * self.bins
-            Tz[~ non_terminal_mask] += rewards[~ non_terminal_mask].unsqueeze(1)
-            clamped_rewards = torch.clamp(Tz,self.min_bin_value,self.max_bin_value).to(self.device)
+            distributions = torch.nn.functional.softmax(self.target_model(next_states[non_terminal_mask]).to(self.device), dim = -1)
+
+            Tz = torch.zeros(MINI_BATCH_SIZE, self.num_bins).to(self.device)#will hold the reward bins that are being shifted
+            Tz[non_terminal_mask] += rewards[non_terminal_mask].unsqueeze(1) + self.gamma * self.bins 
+            clamped_rewards = torch.clamp(Tz,self.min_bin_value,self.max_bin_value).to(self.device)#remapping the reward bins onto out regular bins
             b = ((clamped_rewards - self.min_bin_value) * (self.num_bins - 1) / (self.max_bin_value - self.min_bin_value)).to(self.device)
-            l = torch.floor(b).type(torch.int64)
-            u = torch.ceil(b).type(torch.int64)
+            l = torch.floor(b).type(torch.int64) #lower bin for each reward
+            u = torch.ceil(b).type(torch.int64) #upper bin for each reward
             weights_l = u.float()-b
             weights_u = b - l.float()
             l_clamped = torch.clamp(l, 0, self.num_bins - 1)
             u_clamped = torch.clamp(u, 0, self.num_bins - 1)
-            target = torch.zeros(self.mini_batch_size, self.num_bins).to(self.device)
+            target = torch.zeros(self.mini_batch_size, self.num_bins).to(self.device) #will hold out target distribution
             probs_to_project = distributions[torch.arange(distributions.shape[0]),best_actions]
+            target[non_terminal_mask] = target[non_terminal_mask].scatter_add_(1,l_clamped[non_terminal_mask], weights_l[non_terminal_mask] * probs_to_project)
+            target[non_terminal_mask] = target[non_terminal_mask].scatter_add_(1,u_clamped[non_terminal_mask], weights_u[non_terminal_mask] * probs_to_project)
+            terminal_rewards = rewards[~non_terminal_mask]
+            clamped_terminal_rewards = torch.clamp(terminal_rewards,self.min_bin_value,self.max_bin_value).to(self.device)
+            b = ((clamped_terminal_rewards - self.min_bin_value) * (self.num_bins - 1) / (self.max_bin_value - self.min_bin_value)).to(self.device)
+            l = torch.floor(b).type(torch.int64) #lower bin for each reward
+            u = torch.ceil(b).type(torch.int64) #upper bin for each reward
 
-            l_clamped_nt = l_clamped[non_terminal_mask]
-            u_clamped_nt = u_clamped[non_terminal_mask]
-            weights_l_nt = weights_l[non_terminal_mask]
-            weights_u_nt = weights_u[non_terminal_mask]
+            weights_l = u.float()-b
+            weights_u = b - l.float()
+            l_clamped = torch.clamp(l, 0, self.num_bins - 1)
+            u_clamped = torch.clamp(u, 0, self.num_bins - 1)
 
-            probs_to_project_nt_temp = torch.zeros_like(probs_to_project).to(self.device)
+            target[~non_terminal_mask] = target[~non_terminal_mask].scatter_add_(1,l_clamped.unsqueeze(1), weights_l.unsqueeze(1))
+            target[~non_terminal_mask] = target[~non_terminal_mask].scatter_add_(1,u_clamped.unsqueeze(1), weights_u.unsqueeze(1))
 
-            probs_to_project_nt_temp.scatter_add_(1,l_clamped_nt, weights_l_nt * probs_to_project)
-            probs_to_project_nt_temp.scatter_add_(1,u_clamped_nt, weights_u_nt * probs_to_project)
+            log_softmax_loss = torch.nn.functional.log_softmax(q_values,-1)
+            unreduced_loss = -(target* log_softmax_loss).sum(dim = 1)
 
-            target[non_terminal_mask] = probs_to_project_nt_temp
-
-            terminal_mask = ~non_terminal_mask
-
-            l_clamped_t = l_clamped[terminal_mask]
-            u_clamped_t = u_clamped[terminal_mask]
-            weights_l_t = weights_l[terminal_mask]
-            weights_u_t = weights_u[terminal_mask]
-
-            l_clamped_2d = l_clamped_t[:,0].unsqueeze(1)
-            u_clamped_2d = u_clamped_t[:,0].unsqueeze(1)
-            weights_l_2d = weights_l_t[:,0].unsqueeze(1)
-            weights_u_2d = weights_u_t[:,0].unsqueeze(1)
-
-            probs_to_project_t = torch.zeros(terminal_mask.sum(), self.num_bins).to(self.device)
-            probs_to_project_t.scatter_add_(1,l_clamped_2d, weights_l_2d)
-            probs_to_project_t.scatter_add_(1,u_clamped_2d, weights_u_2d)
-
-            target[terminal_mask] = probs_to_project_t
-
-            unreduced_loss = self.loss_fn(q_values,target)
-
-            priorities = unreduced_loss.sum(-1).abs().detach().cpu().tolist()
+            priorities = unreduced_loss.abs().detach().cpu().tolist()
             self.memory.update_all_td(indicies, priorities)
 
-        unreduced_loss = self.loss_fn(q_values,target)
-        loss = unreduced_loss.sum(-1).mean()
-
+        log_softmax_loss = torch.nn.functional.log_softmax(q_values,-1)
+        unreduced_loss = -(target * log_softmax_loss).sum(dim = 1)
+        loss = (unreduced_loss * torch.tensor(weights).to(self.device)).mean()
         self.optimizer.zero_grad()
         loss.backward()
         if self.clip_gradient:
@@ -255,11 +221,15 @@ class Agent:
         torch.save(self.model.state_dict(), filename)
         optimizer_path = filename.replace('.pt', '_optimizer.pt')
         torch.save(self.optimizer.state_dict(), optimizer_path)
+        '''self.memory.save_memory()
+        return self.memory.get_data()'''
 
     def increment_steps(self):
         self.num_steps += 1
+        self.memory.anneal_beta()
         if self.num_steps % self.validation_frequency == 0:
             self.update_target_network()
+
             
     def load_model(self, filename):
         self.model.load_state_dict(torch.load(filename, weights_only = True))

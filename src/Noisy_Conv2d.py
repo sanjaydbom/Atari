@@ -19,15 +19,15 @@ class NoisyConv2d(nn.Module):
         self.mu_b = nn.Parameter(torch.empty(num_kernels))
         self.sigma_b = nn.Parameter(torch.empty(num_kernels))
 
-        self.initialize_parameters()
+        self.reset()
 
-    def initialize_parameters(self):
+    def reset(self):
         nn.init.kaiming_uniform_(self.mu_k, a=5**0.5)
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.mu_k)
-        bound = 1 / fan_in ** 0.5
+        bound = 0.5 / (fan_in ** 0.5)
         nn.init.uniform_(self.mu_b, -bound, bound)
-        nn.init.constant_(self.sigma_k, self.std_init)
-        nn.init.constant_(self.sigma_b, self.std_init)
+        nn.init.constant_(self.sigma_k, self.std_init / math.sqrt(fan_in))
+        nn.init.constant_(self.sigma_b, self.std_init / math.sqrt(fan_in))
 
 
     def forward(self, x:torch.tensor):
